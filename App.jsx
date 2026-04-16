@@ -424,6 +424,24 @@ const STYLES_CSS = `
   .admin-list-item-meta { font-size: 12px; color: #8A8580; }
   .admin-list-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
+  /* Admin Comment cards */
+  .admin-comment-card {
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .admin-comment-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .admin-comment-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+  .admin-comment-author { font-weight: 600; color: #2C2825; }
+  .admin-comment-rating { display: inline-flex; align-items: center; }
+  .admin-comment-kind { color: #8A8580; font-size: 12px; font-style: italic; }
+  .admin-comment-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .admin-comment-date { font-size: 11px; color: #B8B1A6; white-space: nowrap; }
+  .admin-comment-body { font-size: 14px; line-height: 1.55; color: #2C2825; white-space: pre-wrap; }
+
   /* Location search (Admin) */
   .loc-search-wrap { position: relative; }
   .loc-search-dropdown {
@@ -482,6 +500,8 @@ const getTagsForCategory = (cat) =>
   Object.entries(TAG_META).filter(([_, meta]) => meta.categories.includes(cat)).map(([k]) => k)
 
 const googleMapsUrl = (p) => {
+  // Search by name + location so Google matches the actual business/place card,
+  // not just a pin. Coordinates included as a tiebreaker for disambiguation.
   const query = [p.name, p.city, p.country].filter(Boolean).join(' ')
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=`
 }
@@ -1757,7 +1777,7 @@ function StoryEditor({ story, places, onSave, onCancel }) {
   )
 }
 
-function AdminTab({ places, stories, onSavePlace, onDeletePlace, onSaveStory, onDeleteStory, onExport }) {
+function AdminTab({ places, stories, comments, feedback, onSavePlace, onDeletePlace, onSaveStory, onDeleteStory, onDeleteComment, onDeleteFeedback, onExport }) {
   const [auth, setAuth] = useState(false)
   const [pw, setPw] = useState('')
   const [error, setError] = useState('')
@@ -1820,6 +1840,7 @@ function AdminTab({ places, stories, onSavePlace, onDeletePlace, onSaveStory, on
       <div className="toggle-group" style={{ marginBottom: 18 }}>
         <button className={section === 'places' ? 'active' : ''} onClick={() => setSection('places')}>📍 Places ({places.length})</button>
         <button className={section === 'chapters' ? 'active' : ''} onClick={() => setSection('chapters')}>📖 Chapters ({stories.length})</button>
+        <button className={section === 'comments' ? 'active' : ''} onClick={() => setSection('comments')}>💬 Comments ({comments.length + feedback.length})</button>
       </div>
 
       {section === 'places' && (
@@ -1884,7 +1905,98 @@ function AdminTab({ places, stories, onSavePlace, onDeletePlace, onSaveStory, on
           })}
         </>
       )}
+      {section === 'comments' && (
+        <CommentsAdmin
+          places={places}
+          comments={comments}
+          feedback={feedback}
+          onDeleteComment={onDeleteComment}
+          onDeleteFeedback={onDeleteFeedback}
+        />
+      )}
     </div>
+  )
+}
+
+function CommentsAdmin({ places, comments, feedback, onDeleteComment, onDeleteFeedback }) {
+  const [filter, setFilter] = useState('all') // all | place-comments | general-feedback
+
+  const placeName = (id) => places.find(p => p.id === id)?.name || '(deleted place)'
+
+  // Merge comments + feedback into a unified list for easy filtering/sorting
+  const unified = useMemo(() => {
+    const c = comments.map(x => ({ ...x, kind: 'comment' }))
+    const f = feedback.map(x => ({ ...x, kind: 'feedback' }))
+    return [...c, ...f].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+  }, [comments, feedback])
+
+  const filtered = unified.filter(item => {
+    if (filter === 'place-comments') return item.kind === 'comment'
+    if (filter === 'general-feedback') return item.kind === 'feedback'
+    return true
+  })
+
+  const handleDelete = (item) => {
+    const who = item.name || 'anonymous'
+    if (!confirm(`Delete ${item.kind === 'comment' ? 'comment' : 'feedback'} from "${who}"?\n\n"${item.message.slice(0, 80)}${item.message.length > 80 ? '…' : ''}"`)) return
+    if (item.kind === 'comment') onDeleteComment(item.id)
+    else onDeleteFeedback(item.id)
+  }
+
+  return (
+    <>
+      <div className="admin-bar">
+        <div>
+          <h3 style={{ fontSize: 18, marginBottom: 2 }}>Moderate comments</h3>
+          <div className="muted">
+            {comments.length} place comment{comments.length !== 1 ? 's' : ''} · {feedback.length} general feedback · localStorage persistence
+          </div>
+        </div>
+      </div>
+
+      <div className="filter-row" style={{ marginBottom: 14 }}>
+        <button className={`pill ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>All ({unified.length})</button>
+        <button className={`pill ${filter === 'place-comments' ? 'active' : ''}`} onClick={() => setFilter('place-comments')}>Place comments ({comments.length})</button>
+        <button className={`pill ${filter === 'general-feedback' ? 'active' : ''}`} onClick={() => setFilter('general-feedback')}>General feedback ({feedback.length})</button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="empty">
+          <div className="empty-icon">💬</div>
+          <div className="empty-title">Nothing here yet</div>
+          <div className="empty-text">
+            {filter === 'all'
+              ? 'No comments or feedback have been submitted yet.'
+              : 'No items match this filter.'}
+          </div>
+        </div>
+      ) : (
+        <div>
+          {filtered.map(item => (
+            <div key={item.id} className="admin-comment-card">
+              <div className="admin-comment-head">
+                <div className="admin-comment-meta">
+                  <span className="admin-comment-author">{item.name || 'Anonymous'}</span>
+                  {item.kind === 'comment' && typeof item.rating === 'number' && (
+                    <span className="admin-comment-rating"><Stars value={item.rating} /></span>
+                  )}
+                  <span className="admin-comment-kind">
+                    {item.kind === 'comment'
+                      ? `on ${placeName(item.placeId)}`
+                      : item.placeId ? `on ${placeName(item.placeId)} (feedback)` : 'general feedback'}
+                  </span>
+                </div>
+                <div className="admin-comment-actions">
+                  <span className="admin-comment-date">{formatDate(item.createdAt)}</span>
+                  <button className="btn btn-danger" onClick={() => handleDelete(item)}>Delete</button>
+                </div>
+              </div>
+              <div className="admin-comment-body">{item.message}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -1958,6 +2070,16 @@ export default function App() {
     setToast('Deleted')
   }
 
+  const handleDeleteComment = (id) => {
+    setComments((cs) => cs.filter((c) => c.id !== id))
+    setToast('Comment deleted')
+  }
+
+  const handleDeleteFeedback = (id) => {
+    setFeedback((fs) => fs.filter((f) => f.id !== id))
+    setToast('Feedback deleted')
+  }
+
   // Cross-tab navigation: open a place from anywhere (e.g. a gallery item in a chapter)
   const openPlaceFromAnywhere = (placeId) => {
     setActiveTab('explore')
@@ -2016,10 +2138,14 @@ export default function App() {
           <AdminTab
             places={places}
             stories={stories}
+            comments={comments}
+            feedback={feedback}
             onSavePlace={handleSavePlace}
             onDeletePlace={handleDeletePlace}
             onSaveStory={handleSaveStory}
             onDeleteStory={handleDeleteStory}
+            onDeleteComment={handleDeleteComment}
+            onDeleteFeedback={handleDeleteFeedback}
             onExport={handleExport}
           />
         )}
