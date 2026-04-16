@@ -481,8 +481,11 @@ const uid = () => Math.random().toString(36).slice(2, 10)
 const getTagsForCategory = (cat) =>
   Object.entries(TAG_META).filter(([_, meta]) => meta.categories.includes(cat)).map(([k]) => k)
 
-const googleMapsUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`
-const appleMapsUrl = (p) => `https://maps.apple.com/?q=${p.lat},${p.lng}&name=${encodeURIComponent(p.name)}`
+const googleMapsUrl = (p) => {
+  const query = [p.name, p.city, p.country].filter(Boolean).join(' ')
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=`
+}
+const appleMapsUrl = (p) => `https://maps.apple.com/?q=${encodeURIComponent(p.name)}&ll=${p.lat},${p.lng}`
 
 const formatDate = (iso) => {
   try {
